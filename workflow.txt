@@ -1,0 +1,11 @@
+the workflow in action
+1-A user's support request is sent from another backend and arrives as a message in a RabbitMQ queue.
+2- An available AI worker picks up the message.
+3-The worker first queries the Redis cache to see if a result for this input already exists.
+4- If a result is found in Redis (Cache Hit): The cached ticket and solution are retrieved and the process is complete. This provides a near-instantaneous response.
+5-if no result is in Redis (Cache Miss):
+    The worker sends the user's input to your Hugging Face model being served by vLLM.
+    vLLM processes the request and returns the structured JSON output (the ticket and solution).
+    The worker then stores this new result in Redis for future requests.
+6-The final JSON output is then passed on to the next stage of your banking workflow (e.g., stored in a database, sent to a human agent's dashboard, etc.).
+
