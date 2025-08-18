@@ -8,6 +8,9 @@ import os
 from dotenv import load_dotenv
 
 
+
+load_dotenv()
+
 class TicketWorker:
     
     '''class presenting a worker that consumes ticket requests from RabbitMQ, process them using AI model, and caches the results on reids'''
@@ -18,6 +21,8 @@ class TicketWorker:
         self.rabbit_user = os.getenv("RABBITMQ_USER","user")
         self.rabbit_pass = os.getenv("RABBITMQ_PASS","password")
         self.vllm_api_url = os.getenv("VLLM_API_URL","http://localhost:8001/generate")
+        
+        print(f"--- Worker configured to use AI Server at: {self.vllm_api_url} ---")
         
         self.incoming_queue = os.getenv("RABBITMQ_INCOMING_QUEUE", "ticket_requests")
         self.outgoing_queue = os.getenv("RABBITMQ_OUTGOING_QUEUE", "processed_tickets")
