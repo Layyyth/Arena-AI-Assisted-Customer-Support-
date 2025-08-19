@@ -20,10 +20,24 @@ services:
       # Port for the web-based management UI
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: user
-      RABBITMQ_DEFAULT_PASS: password
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq/
+
+    
+    # when going local
+    #ticket_worker:
+    #build: ./workers
+    #container_name: ticket_worker
+    #restart: unless-stopped
+    # This command loads ALL variables from the .env file into the container
+    #env_file:
+    #  - .env
+    #depends_on:
+    #  - redis
+    #  - rabbitmq
+    # (add other services like your main_api here too)
 
 volumes:
   redis_data:
