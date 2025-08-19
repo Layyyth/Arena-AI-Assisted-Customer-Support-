@@ -6,16 +6,22 @@ from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", 5672))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "user")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "password")
+RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
 INCOMING_QUEUE = os.getenv("RABBITMQ_INCOMING_QUEUE", "ticket_requests")
 
-# --- FastAPI App Initialization ---
+
+# --- Initialization ---
 app = FastAPI(
     title="AI Ticket System API",
     description="An API to submit user requests for AI processing.",
     version="1.0.0",
 )
 
-# --- Pydantic Model (no change) ---
+# --- Pydantic Model 
 class UserRequest(BaseModel):
     user_input: str
     customer_name: Optional[str] = Field(None, description="The customer's name, if available.")
@@ -32,8 +38,13 @@ def create_ticket(user_request: UserRequest):
     connection = None
     try:
         # Establish a new connection for this specific request.
-        credentials = pika.PlainCredentials('user', 'password')
-        parameters = pika.ConnectionParameters('localhost', 5672, '/', credentials)
+        credentials = pika.PlainCredentials(RABBITMQ_USER,RABBITMQ_PASS)
+        parameters = pika.ConnectionParameters(
+            host=RABBITMQ_HOST,
+            port=RABBITMQ_PORT,
+            #virtual_host=RABBITMQ_VHOST,    ---> if arena specifies one add. 
+            credentials=credentials
+            )
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
 
