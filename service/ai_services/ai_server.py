@@ -18,7 +18,7 @@ app = FastAPI(title="vLLM inference Server for Banking")
 
 engine = None
 
-def format_few_shot_prompt(user_input:str,customer_name:Optional[str],customer_id:Optional[str])-> str:
+def format_few_shot_prompt(userInput:str,customerName:Optional[str],customerId:Optional[str])-> str:
     ''' no data ? prompt engineering '''
     
     # system prompt
@@ -32,7 +32,7 @@ def format_few_shot_prompt(user_input:str,customer_name:Optional[str],customer_i
     
     # add current user query
     prompt+= "\n\n---Current request"
-    final_user_prompt  = BankingPrompts.get_ticket_generation_prompt(user_input,customer_name,customer_id)
+    final_user_prompt  = BankingPrompts.get_ticket_generation_prompt(userInput,customerName,customerId)
     prompt += f"\n\n{final_user_prompt}\nResponse:\n"
     
     return prompt
@@ -43,15 +43,15 @@ def format_few_shot_prompt(user_input:str,customer_name:Optional[str],customer_i
 async def generate(request: Request):
     try:
         body = await request.json()
-        user_input = body.get("user_input")
-        customer_name = body.get("customer_name")
-        customer_id = body.get("customer_id")
+        userInput = body.get("userInput")
+        customerName = body.get("customerName")
+        customerId = body.get("customerId")
 
-        if not user_input:
-            return JSONResponse({"error": "user_input is required"}, status_code=400)
+        if not userInput:
+            return JSONResponse({"error": "userInput is required"}, status_code=400)
 
         print("Generating ticket with a single, comprehensive prompt..")
-        final_prompt = format_few_shot_prompt(user_input, customer_name, customer_id)
+        final_prompt = format_few_shot_prompt(userInput, customerName, customerId)
 
         generation_params = SamplingParams(temperature=0.4, top_p=0.9, max_tokens=1024)
         generation_request_id = f"gen-{random_uuid()}"
@@ -90,12 +90,10 @@ if __name__ == "__main__":
     engine_args = AsyncEngineArgs(
         model=MODEL_NAME,
         quantization="gptq",
-        gpu_memory_utilization=0.60,
-        max_model_len=2048
+        gpu_memory_utilization=0.90,
+        max_model_len=4096
     )
     engine = AsyncLLMEngine.from_engine_args(engine_args)
 
     print("Starting Uvicorn server...")
     uvicorn.run(app, host='0.0.0.0', port=8001)
-
-

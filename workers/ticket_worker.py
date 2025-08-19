@@ -24,8 +24,11 @@ class TicketWorker:
         
         print(f"--- Worker configured to use AI Server at: {self.vllm_api_url} ---")
         
-        self.incoming_queue = os.getenv("RABBITMQ_INCOMING_QUEUE", "ticket_requests")
-        self.outgoing_queue = os.getenv("RABBITMQ_OUTGOING_QUEUE", "processed_tickets")
+        self.exchange_name = os.getenv("RABBITMQ_EXCHANGE", "arena.assistance.exchange")
+        self.incoming_queue = os.getenv("RABBITMQ_INCOMING_QUEUE", "arena.assistance.classification.queue")
+        self.incoming_routing_key = os.getenv("RABBITMQ_INCOMING_ROUTING_KEY", "assistance.classify")
+        self.outgoing_queue = os.getenv("RABBITMQ_OUTGOING_QUEUE", "arena.assistance.reason.queue")
+        self.outgoing_routing_key = os.getenv("RABBITMQ_OUTGOING_ROUTING_KEY", "assistance.reason")
         
         self.redis_conn = None
         self.rabbit_conn = None
@@ -57,33 +60,38 @@ class TicketWorker:
                 time.sleep(5)
                 
         self.rabbit_channel = self.rabbit_conn.channel()
+        self.rabbit_channel.exchange_declare(exchange=self.exchange_name, exchange_type='direct', durable=True)
+
         self.rabbit_channel.queue_declare(queue=self.incoming_queue, durable=True)
+        self.rabbit_channel.queue_bind(exchange=self.exchange_name, queue=self.incoming_queue, routing_key=self.incoming_routing_key)
+
         self.rabbit_channel.queue_declare(queue=self.outgoing_queue, durable=True)
+        self.rabbit_channel.queue_bind(exchange=self.exchange_name, queue=self.outgoing_queue, routing_key=self.outgoing_routing_key)
         
         
     def _publish_processed_ticket(self,processed_ticket:dict):
         try:
             message_body=json.dumps(processed_ticket)
             self.rabbit_channel.basic_publish(
-                exchange='',
-                routing_key=self.outgoing_queue,
+                exchange=self.exchange_name,
+                routing_key=self.outgoing_routing_key,
                 body=message_body.encode('utf-8'),
                 properties=pika.BasicProperties(delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE)
             )
-            ticket_id = processed_ticket.get('ticket_id','[N/A]')
-            print(f"publish process ticket {ticket_id} to '{self.outgoing_queue}' qeueue.")
+            ticketId = processed_ticket.get('ticketId','[N/A]')
+            print(f"publish process ticket {ticketId} to exchange '{self.exchange_name}' with key '{self.outgoing_routing_key}'.")
         except Exception as e:
             print(f"!! Failed to publish process ticket to RabbitMQ : {e}")
         
         
         
-    def _get_ai_ticket(self, user_input: str, customer_name: Optional[str], customer_id: Optional[str]) -> str:
+    def _get_ai_ticket(self, userInput: str, customerName: Optional[str], customerId: Optional[str]) -> str:
         '''calls vllm server to generate the  structured ticket'''
         headers = {"Content-Type":"application/json"}
         data = {
-            "user_input":user_input,
-            "customer_name": customer_name,
-            "customer_id": customer_id
+            "userInput": userInput,
+            "customerName": customerName,
+            "customerId": customerId
         }
         try:
             response = requests.post(self.vllm_api_url,headers=headers,json=data,timeout=30)
@@ -93,15 +101,15 @@ class TicketWorker:
             print(f"ERROR : Cloud not get response from vLLM : {e}")
             return None
     
-    def process_user_request(self, user_input: str, customer_name: Optional[str], customer_id: Optional[str], ticket_id: Optional[str]):
+    def process_user_request(self, userInput: str, customerName: Optional[str], customerId: Optional[str], ticketId: Optional[str]):
         '''main processing logic including caching'''
-        cache_key = f"ticket:{user_input}"
+        cache_key = f"ticket:{userInput}"
         cached_results = self.redis_conn.get(cache_key)
         
         if cached_results :
             print(f"Cache hit for key : '{cache_key}'")
             processed_ticket = json.loads(cached_results)
-            processed_ticket["ticket_id"] = ticket_id
+            processed_ticket["ticketId"] = ticketId
             print(json.dumps(json.loads(cached_results),indent=2))
             self._publish_processed_ticket(processed_ticket)
             return
@@ -109,14 +117,14 @@ class TicketWorker:
         print(f"cache miss for key :'{cache_key}'")
         print("Calling vLLM inference Server ..")        
         
-        result_json_str = self._get_ai_ticket(user_input, customer_name, customer_id)
+        result_json_str = self._get_ai_ticket(userInput, customerName, customerId)
         
         if result_json_str:
             try:
                 parsed_json = json.loads(result_json_str)
                 
-                if ticket_id:
-                    parsed_json["ticket_id"] = ticket_id
+                if ticketId:
+                    parsed_json["ticketId"] = ticketId
                     
                 print("vLLM processing complete!")
                 print(json.dumps(parsed_json, indent=2))
@@ -126,7 +134,7 @@ class TicketWorker:
         
                 if "error" not in parsed_json:
                     ai_part_to_cache = parsed_json.copy()
-                    ai_part_to_cache.pop("ticket_id", None)
+                    ai_part_to_cache.pop("ticketId", None)
                     self.redis_conn.set(cache_key, json.dumps(ai_part_to_cache), ex=3600)
                     print("Stored new AI result in cache.")
 
@@ -140,16 +148,16 @@ class TicketWorker:
         
         try:
             message_data = json.loads(body.decode())
-            user_input = message_data.get("user_input")
-            customer_name = message_data.get("customer_name")
-            customer_id = message_data.get("customer_id")
-            ticket_id = message_data.get("ticket_id")
+            userInput = message_data.get("userInput")
+            customerName = message_data.get("customerName")
+            customerId = message_data.get("customerId")
+            ticketId = message_data.get("ticketId")
             
-            if user_input and ticket_id:
-                print(f"\n Received ticket {ticket_id} for input: '{user_input}'")
-                self.process_user_request(user_input, customer_name, customer_id, ticket_id)
+            if userInput and ticketId:
+                print(f"\n Received ticket {ticketId} for input: '{userInput}'")
+                self.process_user_request(userInput, customerName, customerId, ticketId)
             else:
-                print("Received message without 'user_input' or 'ticket_id'. Discarding.")
+                print("Received message without 'userInput' or 'ticketId'. Discarding.")
         
         except json.JSONDecodeError:
             print(f"Received invalid JSON message. Discarding: {body.decode()}")
@@ -163,8 +171,8 @@ class TicketWorker:
         self._connect_rabbitmq()
         self._connect_redis()
         
-        print('waiting for messages in queue "ticket_requests". To exit press CTRL+C')
-        self.rabbit_channel.basic_consume(queue="ticket_requests",on_message_callback=self.callback)
+        print(f"waiting for messages in queue \"{self.incoming_queue}\". To exit press CTRL+C")
+        self.rabbit_channel.basic_consume(queue=self.incoming_queue, on_message_callback=self.callback)
         
         try:
             self.rabbit_channel.start_consuming()
@@ -179,5 +187,3 @@ if __name__ == "__main__":
         worker.run()        
     except Exception as e :
         print(f"an unexpected error occured : {e}")
-
-
