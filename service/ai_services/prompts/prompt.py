@@ -34,18 +34,6 @@ CRITICAL RULES:
 - Route to correct banking departments.
 - Detect preferred communication method from customer text (e.g., "please call me", "send email", "text me", etc.).
 
-Banking Services Include:
-- Account management (checking, savings, business accounts)
-- Credit cards and payment cards
-- Loans and mortgages
-- Investment and wealth management
-- Wire transfers and payments
-- Mobile and online banking
-- ATM services
-- Customer service issues
-- Fraud and security concerns
-- Compliance and regulatory matters
-
 Response must be in this exact JSON format:
 {
   "title": "Brief title summarizing the issue",
@@ -55,11 +43,11 @@ Response must be in this exact JSON format:
   "typeOfTicket": "Complaint|Inquiry|Assistance",
   "impactedDepartment": "Account Management|Credit Cards|Loans and Mortgages|Investment Services|Customer Service|Technical Support|Fraud Prevention|Compliance|Wire Transfers|Mobile Banking",
   "impactedService": "Specific service affected",
-  "customerName": "Customer name if provided",
-  "customerId": "Customer ID if provided",
+  "customerName": "Customer name if provided, otherwise an empty string \"\"",
+  "customerId": "Customer's unique national ID or account identifier if provided, otherwise an empty string \"\"",
   "resolutionSuggestion": "A detailed, step-by-step action plan for an internal support agent. It should be professional, comprehensive, and provide clear instructions to resolve the issue or escalate it appropriately. Include specific internal actions where applicable.",
-  "preferredCommunication": "based on user input its either Email|Phone|SMS|In-Person|Mobile App|Online Chat|Mail|Video Call, if not specified then it's Not Specified",
-  "ticketId": "Original ticket ID from the source system"
+  "preferredCommunication": "Based on user input (e.g., 'call me', 'email me'). If no preference is specified, this MUST be an empty string \"\"",
+  "id": "Original ticket ID from the source system"
 }
 
 For non-banking queries, respond with:
@@ -74,10 +62,11 @@ For non-banking queries, respond with:
 {customerText}
 
 Customer Information:
+- ID: {id}
 - Customer Name: {customerName}
 - Customer ID: {customerId}
 
-Please analyze this request and generate a structured support ticket if it's banking-related, or reject it if it's not."""
+Please analyze this request and generate a structured support ticket with the provided ID if it's banking-related, or reject it if it's not."""
 
     VALIDATION_PROMPT = """Analyze the following customer text and determine if it's related to banking or financial services.
 
@@ -98,15 +87,17 @@ Banking/Financial Topics Include:
 Respond with only "BANKING" if related to financial services, or "NOT_BANKING" if unrelated."""
 
     @classmethod
-    def get_ticket_generation_prompt(cls, customerText: str, customerName: Optional[str] = None, 
+    def get_ticket_generation_prompt(cls, customerText: str, id: str, 
+                                   customerName: Optional[str] = None, 
                                    customerId: Optional[str] = None) -> str:
         """
         Generate complete prompt for ticket generation
         """
         return cls.USER_PROMPT_TEMPLATE.format(
             customerText=customerText,
-            customerName=customerName or "Not provided",
-            customerId=customerId or "Not provided"
+            id=id,
+            customerName=customerName or "", # MODIFIED: Default to empty string
+            customerId=customerId or ""   # MODIFIED: Default to empty string
         )
     
     @classmethod
@@ -127,12 +118,12 @@ Respond with only "BANKING" if related to financial services, or "NOT_BANKING" i
   "typeOfTicket": "Assistance",
   "impactedDepartment": "Technical Support",
   "impactedService": "Mobile Banking Application",
-  "customerName": "Not provided",
-  "customerId": "Not provided",
+  "customerName": "",
+  "customerId": "",
   "resolutionSuggestion": "1. Verify customer identity using the standard security Q&A protocol. 2. Advise customer to perform basic troubleshooting: a) Ensure the app is updated to the latest version. b) Restart their mobile device. c) Clear the app's cache. 3. If the issue persists, create a Tier 2 technical support ticket using the 'Mobile Banking' template in the CRM. 4. Document the customer's device model, operating system version, and the exact time of the crash in the ticket. 5. Inform the customer that the issue has been escalated and provide the new ticket number for their reference.",
   "preferredCommunication": "Phone",
   "confidenceScore": 0.95,
-  "ticketId": "Original ticket ID from the source system"
+  "id": "Original ticket ID from the source system"
 }"""
         },
         {
@@ -144,12 +135,29 @@ Respond with only "BANKING" if related to financial services, or "NOT_BANKING" i
   "typeOfTicket": "Complaint",
   "impactedDepartment": "Fraud Prevention",
   "impactedService": "Credit Card Services",
-  "customerName": "Not provided",
-  "customerId": "Not provided",
+  "customerName": "",
+  "customerId": "",
   "resolutionSuggestion": "1. Reassure the customer and verify their identity using enhanced security protocols for fraud cases. 2. Immediately place a temporary block on the affected credit card via the Card Services portal to prevent further unauthorized charges. 3. Initiate a formal fraud investigation by filing a 'Dispute Claim - Unauthorized Transaction' form. 4. Inform the customer of the generated case number and advise that a new card will be issued and mailed within 5-7 business days. 5. Set a follow-up reminder to check the case status in 48 hours.",
   "preferredCommunication": "Email",
   "confidenceScore": 0.98,
-  "ticketId": "Original ticket ID from the source system"
+  "id": "Original ticket ID from the source system"
+}"""
+        },
+        {
+            "input": "My savings account balance seems incorrect. The last deposit from Friday isn't showing up yet.",
+            "output": """{
+  "title": "Missing Deposit in Savings Account",
+  "description": "Customer reports that a recent deposit made on Friday is not reflected in their savings account balance.",
+  "severity": "Medium",
+  "typeOfTicket": "Inquiry",
+  "impactedDepartment": "Account Management",
+  "impactedService": "Savings Account",
+  "customerName": "",
+  "customerId": "",
+  "resolutionSuggestion": "1. Verify the customer's identity and access their savings account details. 2. Check the transaction history for the specified date to locate the deposit. 3. Inform the customer about standard deposit processing times (e.g., 1-2 business days). 4. If the deposit is not found and the processing time has elapsed, ask the customer for more details (e.g., deposit method, amount). 5. If necessary, initiate a transaction trace request with the Deposits department.",
+  "preferredCommunication": "",
+  "confidenceScore": 0.96,
+  "id": "Original ticket ID from the source system"
 }"""
         },
         {
@@ -163,6 +171,7 @@ Respond with only "BANKING" if related to financial services, or "NOT_BANKING" i
         }
     ]
 
+    # ... (The rest of the class methods remain unchanged) ...
     @classmethod
     def get_ticket_type_definitions(cls) -> Dict[str, str]:
         """

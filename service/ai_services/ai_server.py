@@ -10,15 +10,17 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import json
 import traceback
+import logging
 
 from prompts.prompt import BankingPrompts
 
 MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct-GPTQ-Int8"
 app = FastAPI(title="vLLM inference Server for Banking")
-
 engine = None
+logger = logging.getLogger("vllm_server")
 
-def format_few_shot_prompt(userInput:str,customerName:Optional[str],customerId:Optional[str])-> str:
+
+def format_few_shot_prompt(userInput:str,id:str)-> str:
     ''' no data ? prompt engineering '''
     
     # system prompt
@@ -27,34 +29,38 @@ def format_few_shot_prompt(userInput:str,customerName:Optional[str],customerId:O
     # few shot example to guide the model
     prompt += "\n\n---Examples---"
     for example in BankingPrompts.EXAMPLES:
-        example_prompt_text = BankingPrompts.get_ticket_generation_prompt(example["input"])
+        # We provide a placeholder ID for the examples since they are static
+        example_prompt_text = BankingPrompts.get_ticket_generation_prompt(example["input"], "Example-ID-123")
         prompt += f"\n\n{example_prompt_text}\nResponse:\n{example['output']}"
     
     # add current user query
     prompt+= "\n\n---Current request"
-    final_user_prompt  = BankingPrompts.get_ticket_generation_prompt(userInput,customerName,customerId)
+    final_user_prompt  = BankingPrompts.get_ticket_generation_prompt(userInput,id)
     prompt += f"\n\n{final_user_prompt}\nResponse:\n"
     
     return prompt
 
 
-# -- api endpoint 
 @app.post("/generate")
 async def generate(request: Request):
+    id=None
+    generation_request_id = None
     try:
         body = await request.json()
         userInput = body.get("userInput")
-        customerName = body.get("customerName")
-        customerId = body.get("customerId")
+        id=body.get("id")
 
-        if not userInput:
-            return JSONResponse({"error": "userInput is required"}, status_code=400)
+        
+        if not userInput or not id:
+            return JSONResponse({"error": "userInput and id are required"}, status_code=400)
 
-        print("Generating ticket with a single, comprehensive prompt..")
-        final_prompt = format_few_shot_prompt(userInput, customerName, customerId)
-
-        generation_params = SamplingParams(temperature=0.4, top_p=0.9, max_tokens=1024)
+        # generate unique id for the engine 
         generation_request_id = f"gen-{random_uuid()}"
+        
+        logger.info(f"Processing request for id: '{id}'. Assigned Generation id: '{generation_request_id}'")
+
+        final_prompt = format_few_shot_prompt(userInput,id)
+        generation_params = SamplingParams(temperature=0.4, top_p=0.9, max_tokens=1024)
 
         results_generator = engine.generate(final_prompt, generation_params, generation_request_id)
         generated_text = ""
@@ -64,20 +70,31 @@ async def generate(request: Request):
                 break
 
         if not generated_text:
-             return JSONResponse({"error":"Failed to generate output from model"},status_code=500)
+            logger.error(f"Failed to generate output for id: '{id}' (Generation id: '{generation_request_id}')") 
+            return JSONResponse({"error":"Failed to generate output from model"},status_code=500)
+        
+        logger.info(f"Successfully generated response for id: '{id}' (Generation id: '{generation_request_id}')")
+        logger.debug(f"Raw model output for id '{id}':\n{generated_text}")
 
-        print(f"\n--- RAW MODEL OUTPUT ---\n{generated_text}\n------------------------\n")
-
-        # Use the robust raw_decode method to parse the output
         start_index = generated_text.find('{')
         if start_index == -1:
             raise ValueError("No JSON object start '{' found in the model's output.")
 
         json_decoder = json.JSONDecoder()
         json_output, _ = json_decoder.raw_decode(generated_text[start_index:])
+        
+        
+        if "id" in json_output and json_output["id"] != id:
+            logger.warning(f"Model hallucinated a different id for request id '{id}'. Overwriting with correct id.")
+            json_output["id"] = id
+        elif "id" not in json_output and "error" not in json_output:
+             logger.warning(f"Model did not include id for request id '{id}'. Injecting correct id.")
+             json_output["id"] = id
+             
         return JSONResponse(content=json_output)
 
     except Exception as e:
+        logger.error(f"Error processing id: '{id}' (Generation id: '{generation_request_id}'). Error: {e}")
         traceback.print_exc()
         return JSONResponse(
             {"error": f"An unexpected error occurred in the AI server: {e}"},
@@ -86,7 +103,14 @@ async def generate(request: Request):
                     
     
 if __name__ == "__main__":
-    print("Initializing vLLM engine...")
+    
+    logging.basicConfig(
+        level =logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    
+    logger.info("Initializing vLLM engine...")
     engine_args = AsyncEngineArgs(
         model=MODEL_NAME,
         quantization="gptq",
@@ -95,5 +119,5 @@ if __name__ == "__main__":
     )
     engine = AsyncLLMEngine.from_engine_args(engine_args)
 
-    print("Starting Uvicorn server...")
+    logger.info("Starting Uvicorn server on 0.0.0.0:8001...")
     uvicorn.run(app, host='0.0.0.0', port=8001)

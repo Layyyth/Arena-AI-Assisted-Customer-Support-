@@ -1,26 +1,36 @@
-FROM nvidia/cuda:12.3.1-devel-ubuntu22.04
+
+FROM vllm/vllm-openai:v0.5.1
+
 
 WORKDIR /app
 
-ENV DEBIAN_FRONTEND=noninteractive
+
+RUN useradd -ms /bin/bash -u 1001 vllmuser
+USER vllmuser
 
 
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3-pip \
-    git \
-    && rm -rf /var/lib/apt/lists/*
 
-
-COPY requirements.txt .
+COPY --chown=vllmuser:vllmuser requirements.txt .
 
 
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 
-COPY service/ai_services/. .
+
+COPY --chown=vllmuser:vllmuser service/ai_services/ .
+
 
 
 EXPOSE 8001
 
-CMD ["python3", "ai_server.py"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl --fail http://localhost:8001/docs || exit 1
+
+
+
+
+ENTRYPOINT ["python3"]
+
+
+CMD ["ai_server.py"]

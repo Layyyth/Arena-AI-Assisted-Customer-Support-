@@ -29,7 +29,7 @@ class UserRequest(BaseModel):
     userInput: str
     customerName: Optional[str] = Field(None, description="The customer's name, if available.")
     customerId: Optional[str] = Field(None, description="The customer's ID, if available.")
-    ticketId: str = Field(..., description="The unique identifier for this ticket from the source system.")
+    Id: str = Field(..., description="The unique identifier for this ticket from the source system.")
 
 # --- API Endpoint (with self-contained connection logic) ---
 @app.post("/api/v1/ticket", status_code=status.HTTP_202_ACCEPTED)
@@ -64,8 +64,8 @@ def create_ticket(user_request: UserRequest):
         message_body = user_request.model_dump_json()
 
         channel.basic_publish(
-            exchange=EXCHANGE_NAME,              # <-- Target the exchange
-            routing_key=INCOMING_ROUTING_KEY,     # <-- Specify the "address"
+            exchange=EXCHANGE_NAME,              
+            routing_key=INCOMING_ROUTING_KEY,     
             body=message_body.encode('utf-8'),
             properties=pika.BasicProperties(
                 delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE

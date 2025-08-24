@@ -78,20 +78,20 @@ class TicketWorker:
                 body=message_body.encode('utf-8'),
                 properties=pika.BasicProperties(delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE)
             )
-            ticketId = processed_ticket.get('ticketId','[N/A]')
-            print(f"publish process ticket {ticketId} to exchange '{self.exchange_name}' with key '{self.outgoing_routing_key}'.")
+            id = processed_ticket.get('id','[N/A]')
+            print(f"publish process ticket {id} to exchange '{self.exchange_name}' with key '{self.outgoing_routing_key}'.")
         except Exception as e:
             print(f"!! Failed to publish process ticket to RabbitMQ : {e}")
         
         
         
-    def _get_ai_ticket(self, userInput: str, customerName: Optional[str], customerId: Optional[str]) -> str:
+    def _get_ai_ticket(self, userInput: str, customerName: Optional[str], customerid: Optional[str]) -> str:
         '''calls vllm server to generate the  structured ticket'''
         headers = {"Content-Type":"application/json"}
         data = {
             "userInput": userInput,
             "customerName": customerName,
-            "customerId": customerId
+            "customerid": customerid
         }
         try:
             response = requests.post(self.vllm_api_url,headers=headers,json=data,timeout=30)
@@ -101,7 +101,7 @@ class TicketWorker:
             print(f"ERROR : Cloud not get response from vLLM : {e}")
             return None
     
-    def process_user_request(self, userInput: str, customerName: Optional[str], customerId: Optional[str], ticketId: Optional[str]):
+    def process_user_request(self, userInput: str, customerName: Optional[str], customerid: Optional[str], id: Optional[str]):
         '''main processing logic including caching'''
         cache_key = f"ticket:{userInput}"
         cached_results = self.redis_conn.get(cache_key)
@@ -109,7 +109,7 @@ class TicketWorker:
         if cached_results :
             print(f"Cache hit for key : '{cache_key}'")
             processed_ticket = json.loads(cached_results)
-            processed_ticket["ticketId"] = ticketId
+            processed_ticket["id"] = id
             print(json.dumps(json.loads(cached_results),indent=2))
             self._publish_processed_ticket(processed_ticket)
             return
@@ -117,14 +117,14 @@ class TicketWorker:
         print(f"cache miss for key :'{cache_key}'")
         print("Calling vLLM inference Server ..")        
         
-        result_json_str = self._get_ai_ticket(userInput, customerName, customerId)
+        result_json_str = self._get_ai_ticket(userInput, customerName, customerid)
         
         if result_json_str:
             try:
                 parsed_json = json.loads(result_json_str)
                 
-                if ticketId:
-                    parsed_json["ticketId"] = ticketId
+                if id:
+                    parsed_json["id"] = id
                     
                 print("vLLM processing complete!")
                 print(json.dumps(parsed_json, indent=2))
@@ -134,7 +134,7 @@ class TicketWorker:
         
                 if "error" not in parsed_json:
                     ai_part_to_cache = parsed_json.copy()
-                    ai_part_to_cache.pop("ticketId", None)
+                    ai_part_to_cache.pop("id", None)
                     self.redis_conn.set(cache_key, json.dumps(ai_part_to_cache), ex=3600)
                     print("Stored new AI result in cache.")
 
@@ -150,14 +150,14 @@ class TicketWorker:
             message_data = json.loads(body.decode())
             userInput = message_data.get("userInput")
             customerName = message_data.get("customerName")
-            customerId = message_data.get("customerId")
-            ticketId = message_data.get("ticketId")
+            customerid = message_data.get("customerid")
+            id = message_data.get("id")
             
-            if userInput and ticketId:
-                print(f"\n Received ticket {ticketId} for input: '{userInput}'")
-                self.process_user_request(userInput, customerName, customerId, ticketId)
+            if userInput and id:
+                print(f"\n Received ticket {id} for input: '{userInput}'")
+                self.process_user_request(userInput, customerName, customerid, id)
             else:
-                print("Received message without 'userInput' or 'ticketId'. Discarding.")
+                print("Received message without 'userInput' or 'id'. Discarding.")
         
         except json.JSONDecodeError:
             print(f"Received invalid JSON message. Discarding: {body.decode()}")
